@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 # Set non-interactive mode for apt
 ENV DEBIAN_FRONTEND=noninteractive
