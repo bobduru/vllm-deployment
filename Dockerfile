@@ -3,19 +3,13 @@ FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 # Set non-interactive mode for apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python and necessary system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-venv \
-    python3.12-distutils \
+    python3.8 \
+    python3-pip \
     curl \
     git \
     build-essential \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set python and pip aliases
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
