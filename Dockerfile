@@ -1,15 +1,16 @@
 FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
-# Set non-interactive mode for apt
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install Python 3.10 and system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.8 \
-    python3-pip \
+    python3.10 \
+    python3.10-venv \
+    python3.10-distutils \
     curl \
     git \
     build-essential \
-
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -17,23 +18,20 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 # Add uv to path
 ENV PATH="/root/.local/bin:${PATH}"
 
-# Create a working directory
+# Create working directory
 WORKDIR /app
 
 # Create a virtual environment using uv
-RUN . /root/.local/bin/env && \
-    uv venv /app/myenv --python 3.12 --seed
+RUN uv venv /app/myenv --python 3.10 --seed
 
-# Install Python dependencies using uv
-RUN . /root/.local/bin/env && \
-    . /app/myenv/bin/activate && \
-    uv pip install vllm runpod
+# Install Python dependencies inside the venv using system uv
+RUN uv pip install --python /app/myenv/bin/python vllm runpod
 
-# Add venv to PATH
+# Add venv to PATH for runtime use
 ENV PATH="/app/myenv/bin:$PATH"
 
-# Copy application files
+# Copy your application
 COPY rp_handler.py /app/
 
-# Set default command
+# Default command
 CMD ["python", "-u", "rp_handler.py"]
