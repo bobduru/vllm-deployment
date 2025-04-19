@@ -1,5 +1,12 @@
 import runpod
 import time  
+from vllm import LLM, SamplingParams
+
+
+
+llm = LLM(model="facebook/opt-125m")
+
+sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
 def handler(event):
     """
@@ -17,15 +24,14 @@ def handler(event):
     input = event['input']
     
     prompt = input.get('prompt')  
-    seconds = input.get('seconds', 0)  
 
     print(f"Received prompt: {prompt}")
-    print(f"Sleeping for {seconds} seconds...")
+
+    output = llm.generate(prompt, sampling_params)
     
-    # You can replace this sleep call with your Python function to generate images, text, or run any machine learning workload
-    time.sleep(seconds)  
+
     
-    return prompt 
+    return output[0].outputs[0].text
 
 # Start the Serverless function when the script is run
 if __name__ == '__main__':

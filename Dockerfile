@@ -1,12 +1,34 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-WORKDIR /
+# Install necessary dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN pip install --no-cache-dir runpod
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Copy your handler file
-COPY rp_handler.py /
+# Set environment variables for uv
+ENV PATH="/root/.local/bin:${PATH}"
 
-# Start the container
-CMD ["python3", "-u", "rp_handler.py"]
+# Create a working directory
+WORKDIR /app
+
+# Create a Python virtual environment using uv
+RUN . /root/.local/bin/env && \
+    uv venv /app/myenv --python 3.12 --seed
+
+# Install required packages using uv
+RUN . /root/.local/bin/env && \
+    . /app/myenv/bin/activate && \
+    uv pip install vllm runpod
+
+# Add venv to PATH
+ENV PATH="/app/myenv/bin:$PATH"
+
+# Copy your handler
+COPY rp_handler.py /app/
+
+# Set default command
+CMD ["python", "-u", "rp_handler.py"]
