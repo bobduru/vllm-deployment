@@ -14,7 +14,7 @@ hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 if hf_token is None:
     raise ValueError("Missing HUGGING_FACE_HUB_TOKEN environment variable")
 
-llm = LLM(model="google/gemma-3-27b-it")
+llm = LLM(model="google/gemma-3-12b-it")
 
 sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
