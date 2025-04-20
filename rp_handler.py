@@ -118,7 +118,6 @@ def classify_list(model, sampling_params, input_list, keywords_dict, keywords_st
             
             # Add the matched label to the input object
             input_list[i]["label"] = matched_label or "Unknown"
-            input_list[i]["prompt"] = prompts[i]
 
         return {
             "results": input_list,
@@ -151,34 +150,77 @@ def handler(event):
         event (dict): Contains the input data and request metadata
         
     Returns:
-        Any: The result to be returned to the client
+        dict: Either contains the classification results or error information
     """
+    try:
+        # Validate input structure
+        if not isinstance(event, dict) or 'input' not in event:
+            return {"error": "Invalid event structure. Expected 'input' field."}
 
-    global model
-    global sampling_params
+        input_data = event['input']
+        if not isinstance(input_data, dict):
+            return {"error": "Invalid input format. Expected dictionary."}
 
-    # Ensure the model is loaded
-    if "model" not in globals() or "sampling_params" not in globals():
-        log.info("Loading model")
-        model, sampling_params = load_model()
+        if 'list_to_classify' not in input_data:
+            return {"error": "Missing required field 'list_to_classify'."}
 
-    log.info("Loading keywords")
-    keywords_dict = load_keywords("keywords.csv")
-    labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
-    
-    input = event['input']
+        list_to_classify = input_data['list_to_classify']
+        if not isinstance(list_to_classify, list) or not list_to_classify:
+            return {"error": "Invalid or empty list_to_classify. Expected non-empty list."}
 
-    list_to_classify = input['list_to_classify']
-    log.info(f"Received list to classify, length: {len(list_to_classify)}, first item: {list_to_classify[0]}")
-    parameters = input['parameters']
+        # Initialize model if needed
+        global model
+        global sampling_params
+        if "model" not in globals() or "sampling_params" not in globals():
+            log.info("Loading model")
+            try:
+                model, sampling_params = load_model()
+            except ValueError as e:
+                log.error(f"Failed to load model: {str(e)}")
+                return {"error": f"Model initialization failed: {str(e)}"}
 
-    keywords_strategy = parameters.get('keywords_strategy', "all_in_context")
-    log.info(f"Received keywords strategy: {keywords_strategy}")
+        # Load keywords and process request
+        try:
+            log.info("Loading keywords")
+            keywords_dict = load_keywords("keywords.csv")
+        except Exception as e:
+            log.error(f"Failed to load keywords: {str(e)}")
+            return {"error": f"Failed to load keywords: {str(e)}"}
 
-    res = classify_list(model, sampling_params, list_to_classify, keywords_dict, keywords_strategy=keywords_strategy, labels=labels)
-    log.info(f"Classification results: {res}")
-    
-    return res
+        labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
+        parameters = input_data.get('parameters', {})
+        keywords_strategy = parameters.get('keywords_strategy', "all_in_context")
+        return_prompt_template = parameters.get('return_prompt_template', False)
+
+        # Validate keywords_strategy parameter
+        valid_strategies = ["none", "all_in_context", "find_manually"]
+        if keywords_strategy not in valid_strategies:
+            log.error(f"Invalid keywords_strategy: {keywords_strategy}")
+            return {
+                "error": f"Invalid keywords_strategy. Must be one of: {', '.join(valid_strategies)}",
+                "status": "error"
+            }
+
+        log.info(f"Received list to classify, length: {len(list_to_classify)}, first item: {list_to_classify[0]}")
+        log.info(f"Received keywords strategy: {keywords_strategy}")
+
+        res = classify_list(model, sampling_params, list_to_classify, keywords_dict, 
+                          keywords_strategy=keywords_strategy, labels=labels)
+       
+
+        if return_prompt_template:
+            prompt_template = create_prompt("{text to classify}", keywords_dict, keywords_strategy=keywords_strategy)
+            log.info(f"Prompt template: {prompt_template}")
+            res["prompt_template"] = prompt_template
+        
+        return res
+
+    except Exception as e:
+        log.error(f"Unexpected error in handler: {str(e)}")
+        return {
+            "error": f"An unexpected error occurred: {str(e)}",
+            "status": "error"
+        }
 
 # Start the Serverless function when the script is run
 if __name__ == '__main__':
