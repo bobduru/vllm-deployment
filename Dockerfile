@@ -26,13 +26,15 @@ WORKDIR /app
 RUN uv venv /app/myenv --python 3.10 --seed
 
 # Install Python dependencies inside the venv using system uv
-RUN uv pip install --python /app/myenv/bin/python vllm runpod
+RUN uv pip install --python /app/myenv/bin/python vllm runpod pandas dotenv
 
 # Add venv to PATH for runtime use
 ENV PATH="/app/myenv/bin:$PATH"
 
 # Copy your application
 COPY rp_handler.py /app/
+COPY keywords.csv /app/
+
 
 # Default command
 CMD ["python", "-u", "rp_handler.py"]
