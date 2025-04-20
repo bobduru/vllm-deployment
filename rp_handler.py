@@ -3,8 +3,18 @@ import time
 from vllm import LLM, SamplingParams
 
 
+import os
+from dotenv import load_dotenv
 
-llm = LLM(model="facebook/opt-125m")
+# Load environment variables from .env file
+load_dotenv()
+
+hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
+
+if hf_token is None:
+    raise ValueError("Missing HUGGING_FACE_HUB_TOKEN environment variable")
+
+llm = LLM(model="google/gemma-3-1b-it")
 
 sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
