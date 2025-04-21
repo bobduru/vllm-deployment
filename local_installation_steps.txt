@@ -1,0 +1,16 @@
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+source $HOME/.local/bin/env
+
+uv venv myenv --python 3.12 --seed
+source myenv/bin/activate
+uv pip install vllm runpod dotenv pandas
+
+uv pip install runpod
+
+
+git config --global user.email "emmanuelfernandez00@gmail.com"
+
+git config --global user.name "Emmanuel"
+
+python rp_handler.py --rp_serve_api

@@ -45,13 +45,14 @@ def find_matching_keywords(text, keywords_dict):
 
 def create_prompt(text, keywords_dict, keywords_strategy="find_manually", n_context_keywords_to_keep=None):
         prompt_prefix = (
-            "You are a safety classifier that carefully analyzes each input message for potential risks. "
+            "You are a safety classifier that carefully analyzes text for potential risks. "
             "For every input, classify it strictly into one of the following categories:\n\n"
             "- Hate Speech: Any content that promotes, incites, or supports violence, discrimination, or hostility against individuals or groups based on attributes such as race, religion, gender, sexual orientation, disability, or nationality.\n"
             "- Radicalization: Any content that encourages or supports extremist ideological beliefs, recruitment into extremist groups, or the justification of violence for ideological, religious, or political motives.\n"
             "- Extremism: Any content that advocates for extreme political views, including incitement to overthrow governments, promoting authoritarianism, suppressing rights through violence, or endorsing terrorism.\n"
-            "- Pedophilia: Be the most cautious with this one — any content that implies, suggests, normalizes, or discusses sexual interest in minors, grooming, or child exploitation. But also remember that these sentences are by adults, so anything that sounds too cute or childish should be flagged. Better be too cautious than miss one.\n"
+            "- Pedophilia: Be the most cautious with this one — any content that implies, suggests, normalizes, or discusses sexual interest in minors, grooming, or child exploitation. But also remember that these sentences are by adults, so anything that sounds too cute or childish should be flagged. Anything related to pornography (websites, videos, etc) should also be flagged. Better be too cautious than miss one.\n"
             "- Normal: If the text does not contain any of the above risks.\n\n"
+            
         )
 
         labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
@@ -77,8 +78,11 @@ def create_prompt(text, keywords_dict, keywords_strategy="find_manually", n_cont
             prompt_prefix += "\n"
             
 
-        prompt_prefix += "Instructions: Only output one of these labels without any additional text, formatting, or explanations.\n"
-
+        # prompt_prefix += "Most of the time, the text will be web searches, so some of them can have weird characters or even be blank. "\
+        #     "If you can't make sense of the text, and it doesn't look suspicious, just output 'Normal'.\n"
+        prompt_prefix += "Instructions: Classify the following text in between <classify> tags and output only one of the labels : Hate Speech, Radicalization, Extremism, Pedophilia or Normal in between the <label> tags\n"
+        prompt_prefix += "If you can't make sense of the text, and it doesn't look suspicious, just output <label>Normal</label>.\n"
+        
         if keywords_strategy=="find_manually" and keywords_dict:
             matched_keywords = find_matching_keywords(text, keywords_dict)
         
@@ -89,7 +93,7 @@ def create_prompt(text, keywords_dict, keywords_strategy="find_manually", n_cont
                 
                 prompt_prefix += manual_keyword_context
 
-        prompt = prompt_prefix + f"Text to classify: {text}\nLabel:"
+        prompt = prompt_prefix + "Text to classify: <classify>" + text + "</classify>\nLabel: <label>"
         return prompt
 
 
@@ -108,16 +112,18 @@ def classify_list(model, sampling_params, input_list, keywords_dict, keywords_st
         # Process results and add labels to input objects
         for i, output in enumerate(outputs):
             generated_text = output.outputs[0].text.strip()
-            print(f"Generated text: {generated_text!r}")
             # Match against known labels
             matched_label = None
             for label in labels:
-                if generated_text.lower().startswith(label.lower()):
+                if label.lower().startswith(generated_text.lower()):
                     matched_label = label
                     break
             
             # Add the matched label to the input object
             input_list[i]["label"] = matched_label or "Unknown"
+            # input_list[i]["generated_text"] = generated_text
+            # input_list[i]["output"] = output
+
 
         return {
             "results": input_list,
@@ -136,11 +142,26 @@ def load_model():
 
     llm = LLM(model="google/gemma-3-12b-it")
 
-    sampling_params = SamplingParams(temperature=0)
 
-    return llm, sampling_params
+    return llm
 
 
+def get_labels_tokens(model, labels, only_first_token=False):
+    # print("get_labels_first_token")
+    valid_token_ids = []
+    
+    sampling_params = SamplingParams(temperature=0, max_tokens=1)
+    for label in labels:
+        outputs = model.generate(label, sampling_params)
+        if only_first_token:
+            #Index 1 because the first token is the beginning of the sentence token
+            valid_token_ids.append(outputs[0].prompt_token_ids[1])
+        else:
+            valid_token_ids.extend(outputs[0].prompt_token_ids)
+
+    print("valid_token_ids")
+    print(valid_token_ids)
+    return valid_token_ids
 
 def handler(event):
     """
@@ -170,11 +191,10 @@ def handler(event):
 
         # Initialize model if needed
         global model
-        global sampling_params
-        if "model" not in globals() or "sampling_params" not in globals():
+        if "model" not in globals():
             log.info("Loading model")
             try:
-                model, sampling_params = load_model()
+                model = load_model()
             except ValueError as e:
                 log.error(f"Failed to load model: {str(e)}")
                 return {"error": f"Model initialization failed: {str(e)}"}
@@ -188,9 +208,24 @@ def handler(event):
             return {"error": f"Failed to load keywords: {str(e)}"}
 
         labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
+
+       
+        # Load keywords and process request
+
         parameters = input_data.get('parameters', {})
         keywords_strategy = parameters.get('keywords_strategy', "all_in_context")
         return_prompt_template = parameters.get('return_prompt_template', False)
+        generation_tokens = parameters.get('generation_tokens', "label_restricted")  # Options: "restricted" or "free"
+        
+
+        sampling_params = None
+        if generation_tokens == "label_restricted":
+            #tokenize the labels
+            valid_token_ids = get_labels_tokens(model, labels, only_first_token=True)
+            sampling_params = SamplingParams(temperature=0, max_tokens=1, allowed_token_ids=valid_token_ids)
+        else:
+            sampling_params = SamplingParams(temperature=0, max_tokens=1)
+
 
         # Validate keywords_strategy parameter
         valid_strategies = ["none", "all_in_context", "find_manually"]
@@ -204,6 +239,7 @@ def handler(event):
         log.info(f"Received list to classify, length: {len(list_to_classify)}, first item: {list_to_classify[0]}")
         log.info(f"Received keywords strategy: {keywords_strategy}")
 
+        log.info(f"Classifying list")
         res = classify_list(model, sampling_params, list_to_classify, keywords_dict, 
                           keywords_strategy=keywords_strategy, labels=labels)
        
@@ -216,6 +252,7 @@ def handler(event):
         return res
 
     except Exception as e:
+        print(e)
         log.error(f"Unexpected error in handler: {str(e)}")
         return {
             "error": f"An unexpected error occurred: {str(e)}",
