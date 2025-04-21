@@ -213,17 +213,21 @@ def handler(event):
         # Load keywords and process request
 
         parameters = input_data.get('parameters', {})
+        generation_tokens = parameters.get('generation_tokens', "label_restricted")  # Options: "restricted" or "free"
         keywords_strategy = parameters.get('keywords_strategy', "all_in_context")
         return_prompt_template = parameters.get('return_prompt_template', False)
-        generation_tokens = parameters.get('generation_tokens', "label_restricted")  # Options: "restricted" or "free"
         
 
+
         sampling_params = None
+
         if generation_tokens == "label_restricted":
+            log.info("Label restricted generation")
             #tokenize the labels
             valid_token_ids = get_labels_tokens(model, labels, only_first_token=True)
             sampling_params = SamplingParams(temperature=0, max_tokens=1, allowed_token_ids=valid_token_ids)
         else:
+            log.info("Free generation")
             sampling_params = SamplingParams(temperature=0, max_tokens=1)
 
 

@@ -1,3 +1,0 @@
-docker build --platform linux/amd64 --tag bobduru/serverless-test .
-
-docker push bobduru/serverless-test:latest
