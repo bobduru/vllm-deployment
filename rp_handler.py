@@ -141,14 +141,14 @@ def load_model():
     if hf_token is None:
         raise ValueError("Missing HUGGING_FACE_HUB_TOKEN environment variable")
 
-    # llm = LLM(model="google/gemma-3-12b-it")
+    llm = LLM(model="google/gemma-3-12b-it")
     
-    llm = LLM(
-        model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
-        dtype="auto",
-        quantization="bitsandbytes",
-        load_format="bitsandbytes"
-    )
+    # llm = LLM(
+    #     model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
+    #     dtype="auto",
+    #     quantization="bitsandbytes",
+    #     load_format="bitsandbytes"
+    # )
 
     # sampling_params = SamplingParams(temperature=0, max_tokens=10)
     # outputs = llm.generate("Hello world", sampling_params)
