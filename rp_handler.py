@@ -122,8 +122,8 @@ def classify_list(model, sampling_params, input_list, keywords_dict, keywords_st
             
             # Add the matched label to the input object
             input_list[i]["label"] = matched_label or "Unknown"
-            input_list[i]["generated_text"] = generated_text
-            input_list[i]["output"] = output
+            # input_list[i]["generated_text"] = generated_text
+            # input_list[i]["output"] = output
 
 
         return {
@@ -141,19 +141,19 @@ def load_model():
     if hf_token is None:
         raise ValueError("Missing HUGGING_FACE_HUB_TOKEN environment variable")
 
-    llm = LLM(model="google/gemma-3-12b-it")
+    # llm = LLM(model="google/gemma-3-12b-it")
     
-    # llm = LLM(
-    #     model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
-    #     dtype="auto",
-    #     quantization="bitsandbytes",
-    #     load_format="bitsandbytes"
-    # )
+    llm = LLM(
+        model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
+        dtype="auto",
+        quantization="bitsandbytes",
+        load_format="bitsandbytes"
+    )
 
-    # sampling_params = SamplingParams(temperature=0, max_tokens=10)
-    # outputs = llm.generate("Hello world", sampling_params)
-    # print("TESTING")
-    # print(outputs)
+    sampling_params = SamplingParams(temperature=0, max_tokens=10)
+    outputs = llm.generate("Hello world", sampling_params)
+    print("TESTING")
+    print(outputs)
 
     return llm
 
