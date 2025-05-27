@@ -94,7 +94,7 @@ def create_prompt(text, keywords_dict, keywords_strategy="find_manually", n_cont
                 prompt_prefix += manual_keyword_context
 
         prompt = prompt_prefix + "Text to classify: <classify>" + text + "</classify>\nLabel: <label>"
-        prompt = "Tell me a story about a cat"
+        # prompt = "Tell me a story about a cat"
         return prompt
 
 
@@ -144,7 +144,7 @@ def load_model():
     # llm = LLM(model="google/gemma-3-12b-it")
     
     llm = LLM(
-        model="unsloth/gemma-3-27b-it-unsloth-bnb-4bit",
+        model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
         dtype="auto",
         quantization="bitsandbytes",
         load_format="bitsandbytes"
