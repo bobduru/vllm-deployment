@@ -4,7 +4,7 @@ from vllm import LLM, SamplingParams
 import pandas as pd
 import re
 from collections import defaultdict
-
+import traceback
 
 import os
 from dotenv import load_dotenv
@@ -147,7 +147,8 @@ def load_model():
         model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
         dtype="auto",
         quantization="bitsandbytes",
-        load_format="bitsandbytes"
+        load_format="bitsandbytes",
+        max_model_len=8046
     )
 
     sampling_params = SamplingParams(temperature=0, max_tokens=10)
@@ -268,8 +269,9 @@ def handler(event):
         return res
 
     except Exception as e:
-        print(e)
-        log.error(f"Unexpected error in handler: {str(e)}")
+        
+        error_trace = traceback.format_exc()
+        log.error(f"Unexpected error: {e}\n{error_trace}")
         return {
             "error": f"An unexpected error occurred: {str(e)}",
             "status": "error"
