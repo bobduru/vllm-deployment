@@ -26,7 +26,7 @@ WORKDIR /app
 RUN uv venv /app/myenv --python 3.10 --seed
 
 # Install Python dependencies inside the venv using system uv
-RUN uv pip install --python /app/myenv/bin/python vllm runpod pandas dotenv bitsandbytes
+RUN uv pip install --python /app/myenv/bin/python vllm runpod pandas dotenv
 
 # Add venv to PATH for runtime use
 ENV PATH="/app/myenv/bin:$PATH"

@@ -144,11 +144,11 @@ def load_model():
     # llm = LLM(model="google/gemma-3-12b-it")
     
     llm = LLM(
-        model="unsloth/gemma-3-12b-it-unsloth-bnb-4bit",
-        dtype="auto",
-        quantization="bitsandbytes",
-        load_format="bitsandbytes",
-        max_model_len=8046
+        model="ISTA-DASLab/gemma-3-4b-it-GPTQ-4b-128g",
+        # dtype="auto",
+        # quantization="bitsandbytes",
+        # load_format="bitsandbytes",
+        # max_model_len=8046
     )
 
     sampling_params = SamplingParams(temperature=0, max_tokens=10)
