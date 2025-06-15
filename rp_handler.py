@@ -176,6 +176,32 @@ def get_labels_tokens(model, labels, only_first_token=False):
     print(valid_token_ids)
     return valid_token_ids
 
+
+import requests
+
+def get_data(url):
+    """
+    Make a GET request to the specified URL with authentication.
+    
+    Args:
+        url (str): The URL to make the request to
+        token (str): The authentication token
+        
+    Returns:
+        dict: The JSON response data
+        
+    Raises:
+        Exception: If the request fails
+    """
+    response = requests.get(url,)
+    if response.status_code == 200:
+        print(response.json())
+        return response.json()
+    else:
+        raise Exception(f"Request failed: {response.status_code}")
+
+
+
 def handler(event):
     """
     This function processes incoming requests to your Serverless endpoint.
@@ -187,6 +213,10 @@ def handler(event):
         dict: Either contains the classification results or error information
     """
     try:
+
+        data = get_data("http://178.62.112.216:8000")
+
+        return data
         # Validate input structure
         if not isinstance(event, dict) or 'input' not in event:
             return {"error": "Invalid event structure. Expected 'input' field."}
