@@ -221,6 +221,8 @@ def handler(event):
 
         if return_prompt_template:
             res["prompt_template"] = prompt
+
+        res["possible_labels"] = labels
         
         return res
 
