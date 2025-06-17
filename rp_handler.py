@@ -59,7 +59,7 @@ def load_model():
     # llm = LLM(model="google/gemma-3-12b-it")
     
     llm = LLM(
-        model="ISTA-DASLab/gemma-3-12b-it-GPTQ-4b-128g",
+        model="ISTA-DASLab/gemma-3-27b-it-GPTQ-4b-128g",
         max_model_len=8046
     )
 
