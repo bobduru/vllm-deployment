@@ -91,27 +91,65 @@ def get_labels_tokens(model, labels, only_first_token=False):
 
 import requests
 
-def get_data(url):
+def get_prompt_and_labels(url):
     """
-    Make a GET request to the specified URL with authentication.
+    Make a GET request to the specified URL to fetch prompt and labels.
     
     Args:
         url (str): The URL to make the request to
-        token (str): The authentication token
         
     Returns:
-        dict: The JSON response data
+        tuple: (prompt (str), labels (list))
         
     Raises:
-        Exception: If the request fails
+        ValueError: If URL is invalid or response data is malformed
+        requests.RequestException: If network request fails
+        KeyError: If required fields are missing from response
     """
-    response = requests.get(url,)
-    if response.status_code == 200:
-        data = response.json()
-        return data["prompt"], data["labels"]
-    else:
-        raise Exception(f"Request failed: {response.status_code}")
+    try:
+        # Validate URL
+        if not url or not isinstance(url, str):
+            raise ValueError("Invalid URL provided")
 
+        # Make request with timeout
+        response = requests.get(url, timeout=10)
+        
+        # Check for HTTP errors
+        response.raise_for_status()
+        
+        # Parse JSON response
+        try:
+            data = response.json()
+        except ValueError as e:
+            raise ValueError(f"Invalid JSON response: {str(e)}")
+        
+        # Validate required fields
+        if "prompt" not in data:
+            raise KeyError("Missing 'prompt' field in response")
+        if "labels" not in data:
+            raise KeyError("Missing 'labels' field in response")
+            
+        # Validate field types
+        if not isinstance(data["prompt"], str):
+            raise ValueError("'prompt' must be a string")
+        if not isinstance(data["labels"], list):
+            raise ValueError("'labels' must be a list")
+            
+        # Validate labels content
+        if not data["labels"]:
+            raise ValueError("'labels' list cannot be empty")
+            
+        return data["prompt"], data["labels"]
+        
+    except requests.RequestException as e:
+        log.error(f"Network error while fetching prompt and labels: {str(e)}")
+        raise
+    except (ValueError, KeyError) as e:
+        log.error(f"Data validation error: {str(e)}")
+        raise
+    except Exception as e:
+        log.error(f"Unexpected error while fetching prompt and labels: {str(e)}")
+        raise
 
 
 def handler(event):
@@ -143,7 +181,7 @@ def handler(event):
             return {"error": "Invalid or empty list_to_classify. Expected non-empty list."}
 
 
-        prompt, labels = get_data("http://209.97.142.66/prompt")
+        prompt, labels = get_prompt_and_labels("http://209.97.142.66/prompt")
 
 
         # Initialize model if needed
@@ -156,15 +194,10 @@ def handler(event):
                 log.error(f"Failed to load model: {str(e)}")
                 return {"error": f"Model initialization failed: {str(e)}"}
 
-       
-
         # Load keywords and process request
-
         parameters = input_data.get('parameters', {})
         generation_tokens = parameters.get('generation_tokens', "label_restricted")  # Options: "restricted" or "free"
         return_prompt_template = parameters.get('return_prompt_template', False)
-        
-
 
         sampling_params = None
 
