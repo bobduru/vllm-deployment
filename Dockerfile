@@ -2,6 +2,8 @@ FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ENV HF_HOME=/runpod-volume/hf_cache
+
 # Install Python 3.10 and system dependencies
 RUN apt-get update && apt-get install -y \
     python3.10 \
