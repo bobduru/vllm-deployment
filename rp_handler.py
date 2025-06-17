@@ -13,96 +13,11 @@ from runpod import RunPodLogger
 
 log = RunPodLogger()
 
-def load_keywords(csv_path):
-    """
-    Load keywords and their categories from a CSV file.
-    Assumes CSV has at least 'keyword' and 'category' columns.
-    Returns:
-        - keywords_dict: {keyword_lowercase: category}
-        - keywords_context_str: formatted string for use in prompts
-    """
-    df = pd.read_csv(csv_path)
-
-    # Build the keyword → category dictionary
-    keywords_dict = {
-        row["keyword"].strip().lower(): row["category"].strip()
-        for _, row in df.iterrows()
-        if pd.notna(row["keyword"]) and pd.notna(row["category"])
-    }
-
-    return keywords_dict
-
-def find_matching_keywords(text, keywords_dict):
-        """
-        Check if any keywords (including multi-word) are present in the given text and return them with their categories.
-        
-        :param text: The input string to search within.
-        :return: A list of tuples (matched_keyword, category).
-        """
-        text = text.lower()  # Normalize case
-        matches = [(kw, keywords_dict[kw]) for kw in keywords_dict if re.search(r'\b' + re.escape(kw) + r'\b', text)]  
-        return matches  # Return list of (keyword, category) tuples
-
-def create_prompt(text, keywords_dict, keywords_strategy="find_manually", n_context_keywords_to_keep=None):
-        prompt_prefix = (
-            "You are a safety classifier that carefully analyzes text for potential risks. "
-            "For every input, classify it strictly into one of the following categories:\n\n"
-            "- Hate Speech: Any content that promotes, incites, or supports violence, discrimination, or hostility against individuals or groups based on attributes such as race, religion, gender, sexual orientation, disability, or nationality.\n"
-            "- Radicalization: Any content that encourages or supports extremist ideological beliefs, recruitment into extremist groups, or the justification of violence for ideological, religious, or political motives.\n"
-            "- Extremism: Any content that advocates for extreme political views, including incitement to overthrow governments, promoting authoritarianism, suppressing rights through violence, or endorsing terrorism.\n"
-            "- Pedophilia: Be the most cautious with this one — any content that implies, suggests, normalizes, or discusses sexual interest in minors, grooming, or child exploitation. But also remember that these sentences are by adults, so anything that sounds too cute or childish should be flagged. Anything related to pornography (websites, videos, etc) should also be flagged. Better be too cautious than miss one.\n"
-            "- Normal: If the text does not contain any of the above risks.\n\n"
-            
-        )
-
-        labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
-
-    
-        if keywords_strategy == "all_in_context" and keywords_dict:
-            # Rebuild category → keywords mapping from the flat dictionary
-            grouped_keywords = defaultdict(list)
-            for keyword, category in keywords_dict.items():
-                grouped_keywords[category].append(keyword)
-        
-            prompt_prefix += "For some more context here are keywords commonly used for the categories, you should flag a sentence with one of these keywords:\n"
-            for label in labels:
-                keywords = grouped_keywords.get(label, [])
-                if keywords:
-                    # Optionally limit the number of keywords
-                    selected_keywords = (
-                        keywords[:n_context_keywords_to_keep]
-                        if n_context_keywords_to_keep is not None
-                        else keywords
-                    )
-                    prompt_prefix += f"{label}: {', '.join(selected_keywords)}\n"
-            prompt_prefix += "\n"
-            
-
-        # prompt_prefix += "Most of the time, the text will be web searches, so some of them can have weird characters or even be blank. "\
-        #     "If you can't make sense of the text, and it doesn't look suspicious, just output 'Normal'.\n"
-        prompt_prefix += "Instructions: Classify the following text in between <classify> tags and output only one of the labels : Hate Speech, Radicalization, Extremism, Pedophilia or Normal in between the <label> tags\n"
-        prompt_prefix += "If you can't make sense of the text, and it doesn't look suspicious, just output <label>Normal</label>.\n"
-        
-        if keywords_strategy=="find_manually" and keywords_dict:
-            matched_keywords = find_matching_keywords(text, keywords_dict)
-        
-            # If keywords were found, dynamically modify the prompt
-            if matched_keywords:
-                manual_keyword_context = "\n\nThese words were found in the message and are associated with risk categories, so be extra careful on this sentence:\n"
-                manual_keyword_context += "\n".join([f"- {kw}: {cat}" for kw, cat in matched_keywords])
-                
-                prompt_prefix += manual_keyword_context
-
-        prompt = prompt_prefix + "Text to classify: <classify>" + text + "</classify>\nLabel: <label>"
-        # prompt = "Tell me a story about a cat"
-        return prompt
-
-
-def classify_list(model, sampling_params, input_list, keywords_dict, keywords_strategy="find_manually", labels=["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]):
+def classify_list(model, sampling_params, input_list, labels, prompt):
         """Classify a large list by splitting into batches and calling classify_batch."""
         start_time = time.time()
     
-        prompts = [create_prompt(entry["value"], keywords_dict, keywords_strategy=keywords_strategy) for entry in input_list]
+        prompts = [prompt.format(text=entry["value"]) for entry in input_list]
 
         outputs = model.generate(prompts, sampling_params)
     
@@ -144,10 +59,7 @@ def load_model():
     # llm = LLM(model="google/gemma-3-12b-it")
     
     llm = LLM(
-        model="ISTA-DASLab/gemma-3-27b-it-GPTQ-4b-128g",
-        # dtype="auto",
-        # quantization="bitsandbytes",
-        # load_format="bitsandbytes",
+        model="ISTA-DASLab/gemma-3-12b-it-GPTQ-4b-128g",
         max_model_len=8046
     )
 
@@ -195,8 +107,8 @@ def get_data(url):
     """
     response = requests.get(url,)
     if response.status_code == 200:
-        print(response.json())
-        return response.json()
+        data = response.json()
+        return data["prompt"], data["labels"]
     else:
         raise Exception(f"Request failed: {response.status_code}")
 
@@ -214,9 +126,7 @@ def handler(event):
     """
     try:
 
-        data = get_data("http://178.62.112.216:8000")
-
-        return data
+        
         # Validate input structure
         if not isinstance(event, dict) or 'input' not in event:
             return {"error": "Invalid event structure. Expected 'input' field."}
@@ -232,6 +142,10 @@ def handler(event):
         if not isinstance(list_to_classify, list) or not list_to_classify:
             return {"error": "Invalid or empty list_to_classify. Expected non-empty list."}
 
+
+        prompt, labels = get_data("http://209.97.142.66/prompt")
+
+
         # Initialize model if needed
         global model
         if "model" not in globals():
@@ -242,22 +156,12 @@ def handler(event):
                 log.error(f"Failed to load model: {str(e)}")
                 return {"error": f"Model initialization failed: {str(e)}"}
 
-        # Load keywords and process request
-        try:
-            log.info("Loading keywords")
-            keywords_dict = load_keywords("keywords.csv")
-        except Exception as e:
-            log.error(f"Failed to load keywords: {str(e)}")
-            return {"error": f"Failed to load keywords: {str(e)}"}
-
-        labels = ["Hate Speech", "Radicalization", "Extremism", "Pedophilia", "Normal"]
-
        
+
         # Load keywords and process request
 
         parameters = input_data.get('parameters', {})
         generation_tokens = parameters.get('generation_tokens', "label_restricted")  # Options: "restricted" or "free"
-        keywords_strategy = parameters.get('keywords_strategy', "all_in_context")
         return_prompt_template = parameters.get('return_prompt_template', False)
         
 
@@ -266,6 +170,7 @@ def handler(event):
 
         if generation_tokens == "label_restricted":
             log.info("Label restricted generation")
+            log.info(labels)
             #tokenize the labels
             valid_token_ids = get_labels_tokens(model, labels, only_first_token=True)
             sampling_params = SamplingParams(temperature=0, max_tokens=1, allowed_token_ids=valid_token_ids)
@@ -274,27 +179,15 @@ def handler(event):
             sampling_params = SamplingParams(temperature=0, max_tokens=5)
 
 
-        # Validate keywords_strategy parameter
-        valid_strategies = ["none", "all_in_context", "find_manually"]
-        if keywords_strategy not in valid_strategies:
-            log.error(f"Invalid keywords_strategy: {keywords_strategy}")
-            return {
-                "error": f"Invalid keywords_strategy. Must be one of: {', '.join(valid_strategies)}",
-                "status": "error"
-            }
-
         log.info(f"Received list to classify, length: {len(list_to_classify)}, first item: {list_to_classify[0]}")
-        log.info(f"Received keywords strategy: {keywords_strategy}")
+        # log.info(f"Received keywords strategy: {keywords_strategy}")
 
         log.info(f"Classifying list")
-        res = classify_list(model, sampling_params, list_to_classify, keywords_dict, 
-                          keywords_strategy=keywords_strategy, labels=labels)
+        res = classify_list(model, sampling_params, list_to_classify, labels, prompt)
        
 
         if return_prompt_template:
-            prompt_template = create_prompt("{text to classify}", keywords_dict, keywords_strategy=keywords_strategy)
-            log.info(f"Prompt template: {prompt_template}")
-            res["prompt_template"] = prompt_template
+            res["prompt_template"] = prompt
         
         return res
 
