@@ -29,7 +29,7 @@ COPY requirements.txt /app/
 RUN uv venv /app/myenv --python 3.10 --seed
 
 # Install Python dependencies inside the venv using system uv
-RUN uv pip install --python /app/myenv/bin/python -r requirements.txt
+RUN uv pip install --python /app/myenv/bin/python -r /app/requirements.txt
 
 # Add venv to PATH
 ENV PATH="/app/myenv/bin:$PATH"
