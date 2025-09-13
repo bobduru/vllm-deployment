@@ -19,6 +19,10 @@ def classify_list(model, sampling_params, input_list, labels, prompt):
     
         prompts = [prompt.format(text=entry["value"]) for entry in input_list]
 
+        tok = model.get_tokenizer()
+        first_len = len(tok(prompts[0]).input_ids)
+        print(f"First prompt token length: {first_len}")
+
         outputs = model.generate(prompts, sampling_params)
     
         end_time = time.time()
@@ -60,7 +64,7 @@ def load_model():
     
     llm = LLM(
         model="ISTA-DASLab/gemma-3-27b-it-GPTQ-4b-128g",
-        max_model_len=8046
+        # max_model_len=8046
     )
 
     sampling_params = SamplingParams(temperature=0, max_tokens=10)
@@ -151,6 +155,70 @@ def get_prompt_and_labels(url):
         log.error(f"Unexpected error while fetching prompt and labels: {str(e)}")
         raise
 
+def create_keywords_string():
+    """
+    Fetch training data from the API and format it as a keywords string.
+    """
+    try:
+        load_dotenv()
+
+        response = requests.get(
+            "https://safehire-api.echoagency.co.uk/v1/external/machinelearning/training-data", 
+            headers={
+            "X-API-SECRET": os.getenv("X-API-SECRET"),
+            "X-API-KEY": os.getenv("X-API-KEY")
+        },
+            timeout=10
+        )
+        response.raise_for_status()
+        keywords = response.json()
+        
+        keywords_string = "For some more context here are keywords commonly used for the categories, you should flag a sentence with one of these keywords:\n"
+
+        for keyword_entry in keywords:
+            category = keyword_entry.get("category", "")
+            training_set = keyword_entry.get("trainingSet", [])
+            
+            if category and training_set:
+                keyword_list = [item.get("keyword", "") for item in training_set if item.get("keyword")]
+                if keyword_list:
+                    keywords_string += f"{category}: {', '.join(keyword_list)}\n"
+        
+        return keywords_string
+        
+    except requests.RequestException as e:
+        log.error(f"Failed to fetch keywords: {str(e)}")
+        return ""
+    except (ValueError, KeyError) as e:
+        log.error(f"Error processing keywords data: {str(e)}")
+        return ""
+    except Exception as e:
+        log.error(f"Unexpected error: {str(e)}")
+        return ""
+
+        
+
+def create_prompt(add_keywords_context=True, ):
+    """
+    Create a prompt for text classification by reading from prompt.txt and optionally adding keyword context.
+    Returns:
+        - prompt: The formatted prompt string
+        - labels: List of classification labels
+    """
+    # Read the base prompt from file
+    with open("./prompt.txt", "r") as f:
+        prompt_prefix = f.read()
+
+    if add_keywords_context:
+        keywords_context = create_keywords_string()
+        print(keywords_context)
+        # Replace the placeholder in the prompt
+        prompt_prefix = prompt_prefix.replace("{keywords_context}", keywords_context)
+    else:
+        # Remove the keywords context placeholder if not adding keywords
+        prompt_prefix = prompt_prefix.replace("{keywords_context}", "")
+
+    return prompt_prefix
 
 def handler(event):
     """
@@ -188,7 +256,8 @@ def handler(event):
         labels = input_data.get('labels')
 
         if prompt is None:
-            prompt = 'You are a safety classifier that carefully analyzes text for potential risks.\nFor every input, classify it strictly into one of the following categories:\n- Hate Speech: Any content that promotes, incites, or supports violence, discrimination, or hostility against individuals or groups based on attributes such as race, religion, gender, sexual orientation, disability, or nationality.\n- Radicalization: Any content that encourages or supports extremist ideological beliefs, recruitment into extremist groups, or the justification of violence for ideological, religious, or political motives.\n- Extremism: Any content that advocates for extreme political views, including incitement to overthrow governments, promoting authoritarianism, suppressing rights through violence, or endorsing terrorism.\n- Pedophilia: Be the most cautious with this one — any content that implies, suggests, normalizes, or discusses sexual interest in minors, grooming, or child exploitation. But also remember that these sentences are by adults, so anything that sounds too cute or childish should be flagged. Anything related to pornography (websites, videos, etc) should also be flagged. Better be too cautious than miss one.\n- Normal: If the text does not contain any of the above risks.\nFor some more context here are keywords commonly used for the categories, you should flag a sentence with one of these keywords:\nHate Speech: nancy, patriots, gay, homo, beefer, wap, nip, nigger, antisemitism, holocaust, spick, whitey, nigga, adolf hitler, fenian, war_against_ukraine, 𝗢𝗳𝗳-𝗚𝗿𝗶𝗱 𝗜𝗿𝗲𝗹𝗮𝗻𝗱 𝗖𝗵𝗮𝘁 𝗴𝗿𝗼𝘂𝗽, paki, worthless fucking niggers and muslim men, shabbos, muh democracy, larry murphy, i hate the fucking jews, fuck them all, islamic culture, non believers, deport them all, pig, hate speech, donate for the idf, nazi, third reiche, 3rd reiche, nf, national front, anti white, demographic fractures, migrants, exploitation, mixed race, tommy robinson, dogz bollox right wing news (official), foreign national, noodlewhore, sheboon, negroid, abo, mongoloid, zog, ape, ethnicel, fairy, queer, dyke, les, sodomite, poof, fudgepacker, genderbender, queen, tranny, heshe, 109/110, blut und ehre, blood and honor, celtic cross, dirlewanger, waffen ss, life rune, elhaz rune, algis runenazi, norse, sturmabteilung, volksfront, totenkopf, deaths head, schutzstaffel, wolfs angel, wolfsangel, dopplehaken, wolfs hook, zyklon b, ((())), pepe the frog, 14 words, akia, a klansman i am, american front, anudda shoah, western culture, white race, non-white, stephen yaxley-lennon\nRadicalization: infadel, isis, guntrader, hamas, rockets, hezzbollah, twin towers, aq, aq-i, aq-a, en, serbest, eyalette, bomba, atara, izin, veriyolar, attığı, mühimmat, sahte, boş, free state, 3d gun, gun, humza, militant muslims, malik faisal akram, al shaabab, daesh, da’esh, al qaida, al-nusrah front, al-qa\'ida in the lands of the islamic maghreb, nasir al-wahishi, aqap, imirat kavkaz, abu usman gimrinskiy, magomed suleymanov, the islamic jihad union, iju, boko haram, abubakar shekau, spf, group of popular rebels, zero tolerance organization, lord\'s resistance army, lra, joseph kony, dominic ongwen, tehrik-e taliban pakistan, ttp, baitullah mehsud,, hakimullah mehsud, mullah fazlullah, malala yousafzai, lashkar-e-jhangvi, sipah-i-sahaba pakistan, akram lahori, qari zafar group, the revolutionary people’s liberation party, the revolutionary people’s liberation front, dhkp, dhkc, devrimci sol, dev sol, kongra-gel, kgk, kurdistan workers’ party,, pkk, ansar al-sharia, partisans of islamic law., abu khalid al-madani, ansar al-sharia in tunisia, hezb-e-islami gulbuddin, hig, party of islam, ghairat baheer, qutbuddin hilal, isis-drc, isis-mozambique, harakat sawa’d misr, islamic revolutionary guard corps, irgc, jama’at nusrat al-islam wal-muslimin, isis in the greater sahara, isis-west africa, revolutionary armed forces of colombia, farc, islamic state’s khorasan province, hay’at tahrir al-sham, jabhat fath al-sham amendment, hay’at tahrir al-sham amendment, isis-sinai province, sayyid qutb, ansar bayt al-maqdis, ansar al-shari’a in benghazi, al-mulathamun battalion, haqqani network, jaish-e-mohammed, al-aqsa martyrs brigade, communist party of the philippines, lashkar i jhangvi, islamic jihad union, kata’ib hizballah, jemaah anshorut tauhid, khmer rouge, manuel rodriguez patriotic front dissidents, hts, hayat tahrir al-sham, abdallah azzam, jihad, conspiracy theories, weapons, build a bomb, plan an attack, school attack, anger, ideology, syria, ukraine, russia, libyan islamic fighting group, lifg, aab, ano, 17 november, 17n, asg, gi, aiai, ai, aas-b, aas-t, as, abm, ansaru, gia, awd, bk, eta, bla, bh, eij, fkd, gimf, gicm, huji, huji-b, hum/a, hm, hqn, hasm, ik, im, iaa, imu, jem, jad, jnim, jua, jmb, juf, jki, ji, jaa, jak-a, kak, let, ltte, pij, pflp-gc, dhkp-c, gspc, ssp, skd, tnsm, tip, thkp-c, continuity, army, council, cumann, na, mban, fianna, héireann, irish, national, liberation, people\'s, organisation, republican, loyalist, volunteer, force, orange, volunteers, red, hand, commando, defenders, saor, éire, ulster, defence, association, ulster freedom fighters, ulster volunteer force, cac inla iplo ira lvf uda uff uvf, eco-terrorism, incels, involuntary celibates, 764\nPedophilia: loli lolicon toddler, young girl, young boy, pre teen, pedo, lolitas, adultwork.comadultwork.com, adult service providers & erotic content, sensitive stalk, black virgin, pondo tiny, probiller.trueamateurs.com\u200b, young, bald, lolicon rape king, lolicon english rape, lillie, virgin, lolicon rape glass, panties, bunny cottontail, incest, roblox, small mousepad, exploited asia, exploited, repel daughter, vietnamese, roblox.com, babyj, babyshivid, childlover, childporn, childsex, childfugga, ddoggprn, hussyfan, kdquality, kidzilla, kingpass, mafiasex, pedofilia, pedofilo, pedoland, pedophile, pedophilia, pedophilie, pthc, ptsc, qqaazz, raygold, reelkiddymov, yamad, "youngvideomodels, pre teen hard core, r@ygold, 12yo, underage, lordofthering, 001a, 10of, 1man, 2005new, 7e, 7o, abt, ass, avi, baby, babyshvid, bambina, bbx, bd, bella, beyword, boy, boylover, brazuquinha, cambodian, change, child, childs, ck, company, cries, cum, daughter, desidee, diaper, doggyfuck, doughter, eine, elli, eurololita, furs, gebusch, girl, girls, harrier, hussyfa, hussyfun, hyman, illegal, inces, infant, inga, inna, island, island03, jackie, jailbait, jenniefer, jenny, jho, jpg, jr, kacy, kdv, kiddy, kids, kinderﬁcker, kindergarden, kissie, kleuterkutje, kurahashi, la2, laika, landﬁll, liluplanet, little, lolalover, lolifuck, lolita, lolita2, lolitaguy, ls, lsbar, lsm, lsn, lso, lsp, lsw, lucie, luto, madnet, maﬁasex, magazine, map, mara, maryanne, mellony, model, moscow, mpg, mylola, nablot, nansy, new, newcaps, newer, newstar, nimbus, nimphets, nn, nobull, november, novinhas, nude, nude01, nudis, old, olds, pae, pak, pedoﬁlia, peepee, petersburg, phantom, playtoy, porn, pre, preteen, preteenz, pretten, private, prt, pt, ptﬀ, pussy, qsh, rape, rar, rbv, reallola, rebone, rizmastar, sandra, sex, soﬁe, spam, spreading, st, step, suwano, teal, teen, thor, tochter, tori, torture, u15, ultra, until, uvs, v10040, v132, valya, vater, vdbest, ver, vicky, weekend, witch, xlola, ye, yelitza, yg, ygold, 1yo, 2yo, 4yo, 5yo, 6yo, 7yo, 8yo, 9yo, 10yo, 11yo, 13yo, ezik007, zadoom, vtcap, extremep2p, beerbarrell, stepdaughter, stepfather, humiliation, destroyed, deepfake, fake porn, stalker, stalking, harassment, cyberstalking, trolling, indecent\n\n\nInstructions: Classify the following text in between <classify> tags and output only one of the labels : Hate Speech, Radicalization, Extremism, Pedophilia or Normal in between the <label> tags\nText to classify: <classify>{text}</classify>\nLabel: <label>'
+            # prompt = 'You are a safety classifier that carefully analyzes text for potential risks.\nFor every input, classify it strictly into one of the following categories:\n- Hate Speech: Any content that promotes, incites, or supports violence, discrimination, or hostility against individuals or groups based on attributes such as race, religion, gender, sexual orientation, disability, or nationality.\n- Radicalization: Any content that encourages or supports extremist ideological beliefs, recruitment into extremist groups, or the justification of violence for ideological, religious, or political motives.\n- Extremism: Any content that advocates for extreme political views, including incitement to overthrow governments, promoting authoritarianism, suppressing rights through violence, or endorsing terrorism.\n- Pedophilia: Be the most cautious with this one — any content that implies, suggests, normalizes, or discusses sexual interest in minors, grooming, or child exploitation. But also remember that these sentences are by adults, so anything that sounds too cute or childish should be flagged. Anything related to pornography (websites, videos, etc) should also be flagged. Better be too cautious than miss one.\n- Normal: If the text does not contain any of the above risks.\nFor some more context here are keywords commonly used for the categories, you should flag a sentence with one of these keywords:\nHate Speech: nancy, patriots, gay, homo, beefer, wap, nip, nigger, antisemitism, holocaust, spick, whitey, nigga, adolf hitler, fenian, war_against_ukraine, 𝗢𝗳𝗳-𝗚𝗿𝗶𝗱 𝗜𝗿𝗲𝗹𝗮𝗻𝗱 𝗖𝗵𝗮𝘁 𝗴𝗿𝗼𝘂𝗽, paki, worthless fucking niggers and muslim men, shabbos, muh democracy, larry murphy, i hate the fucking jews, fuck them all, islamic culture, non believers, deport them all, pig, hate speech, donate for the idf, nazi, third reiche, 3rd reiche, nf, national front, anti white, demographic fractures, migrants, exploitation, mixed race, tommy robinson, dogz bollox right wing news (official), foreign national, noodlewhore, sheboon, negroid, abo, mongoloid, zog, ape, ethnicel, fairy, queer, dyke, les, sodomite, poof, fudgepacker, genderbender, queen, tranny, heshe, 109/110, blut und ehre, blood and honor, celtic cross, dirlewanger, waffen ss, life rune, elhaz rune, algis runenazi, norse, sturmabteilung, volksfront, totenkopf, deaths head, schutzstaffel, wolfs angel, wolfsangel, dopplehaken, wolfs hook, zyklon b, ((())), pepe the frog, 14 words, akia, a klansman i am, american front, anudda shoah, western culture, white race, non-white, stephen yaxley-lennon\nRadicalization: infadel, isis, guntrader, hamas, rockets, hezzbollah, twin towers, aq, aq-i, aq-a, en, serbest, eyalette, bomba, atara, izin, veriyolar, attığı, mühimmat, sahte, boş, free state, 3d gun, gun, humza, militant muslims, malik faisal akram, al shaabab, daesh, da’esh, al qaida, al-nusrah front, al-qa\'ida in the lands of the islamic maghreb, nasir al-wahishi, aqap, imirat kavkaz, abu usman gimrinskiy, magomed suleymanov, the islamic jihad union, iju, boko haram, abubakar shekau, spf, group of popular rebels, zero tolerance organization, lord\'s resistance army, lra, joseph kony, dominic ongwen, tehrik-e taliban pakistan, ttp, baitullah mehsud,, hakimullah mehsud, mullah fazlullah, malala yousafzai, lashkar-e-jhangvi, sipah-i-sahaba pakistan, akram lahori, qari zafar group, the revolutionary people’s liberation party, the revolutionary people’s liberation front, dhkp, dhkc, devrimci sol, dev sol, kongra-gel, kgk, kurdistan workers’ party,, pkk, ansar al-sharia, partisans of islamic law., abu khalid al-madani, ansar al-sharia in tunisia, hezb-e-islami gulbuddin, hig, party of islam, ghairat baheer, qutbuddin hilal, isis-drc, isis-mozambique, harakat sawa’d misr, islamic revolutionary guard corps, irgc, jama’at nusrat al-islam wal-muslimin, isis in the greater sahara, isis-west africa, revolutionary armed forces of colombia, farc, islamic state’s khorasan province, hay’at tahrir al-sham, jabhat fath al-sham amendment, hay’at tahrir al-sham amendment, isis-sinai province, sayyid qutb, ansar bayt al-maqdis, ansar al-shari’a in benghazi, al-mulathamun battalion, haqqani network, jaish-e-mohammed, al-aqsa martyrs brigade, communist party of the philippines, lashkar i jhangvi, islamic jihad union, kata’ib hizballah, jemaah anshorut tauhid, khmer rouge, manuel rodriguez patriotic front dissidents, hts, hayat tahrir al-sham, abdallah azzam, jihad, conspiracy theories, weapons, build a bomb, plan an attack, school attack, anger, ideology, syria, ukraine, russia, libyan islamic fighting group, lifg, aab, ano, 17 november, 17n, asg, gi, aiai, ai, aas-b, aas-t, as, abm, ansaru, gia, awd, bk, eta, bla, bh, eij, fkd, gimf, gicm, huji, huji-b, hum/a, hm, hqn, hasm, ik, im, iaa, imu, jem, jad, jnim, jua, jmb, juf, jki, ji, jaa, jak-a, kak, let, ltte, pij, pflp-gc, dhkp-c, gspc, ssp, skd, tnsm, tip, thkp-c, continuity, army, council, cumann, na, mban, fianna, héireann, irish, national, liberation, people\'s, organisation, republican, loyalist, volunteer, force, orange, volunteers, red, hand, commando, defenders, saor, éire, ulster, defence, association, ulster freedom fighters, ulster volunteer force, cac inla iplo ira lvf uda uff uvf, eco-terrorism, incels, involuntary celibates, 764\nPedophilia: loli lolicon toddler, young girl, young boy, pre teen, pedo, lolitas, adultwork.comadultwork.com, adult service providers & erotic content, sensitive stalk, black virgin, pondo tiny, probiller.trueamateurs.com\u200b, young, bald, lolicon rape king, lolicon english rape, lillie, virgin, lolicon rape glass, panties, bunny cottontail, incest, roblox, small mousepad, exploited asia, exploited, repel daughter, vietnamese, roblox.com, babyj, babyshivid, childlover, childporn, childsex, childfugga, ddoggprn, hussyfan, kdquality, kidzilla, kingpass, mafiasex, pedofilia, pedofilo, pedoland, pedophile, pedophilia, pedophilie, pthc, ptsc, qqaazz, raygold, reelkiddymov, yamad, "youngvideomodels, pre teen hard core, r@ygold, 12yo, underage, lordofthering, 001a, 10of, 1man, 2005new, 7e, 7o, abt, ass, avi, baby, babyshvid, bambina, bbx, bd, bella, beyword, boy, boylover, brazuquinha, cambodian, change, child, childs, ck, company, cries, cum, daughter, desidee, diaper, doggyfuck, doughter, eine, elli, eurololita, furs, gebusch, girl, girls, harrier, hussyfa, hussyfun, hyman, illegal, inces, infant, inga, inna, island, island03, jackie, jailbait, jenniefer, jenny, jho, jpg, jr, kacy, kdv, kiddy, kids, kinderﬁcker, kindergarden, kissie, kleuterkutje, kurahashi, la2, laika, landﬁll, liluplanet, little, lolalover, lolifuck, lolita, lolita2, lolitaguy, ls, lsbar, lsm, lsn, lso, lsp, lsw, lucie, luto, madnet, maﬁasex, magazine, map, mara, maryanne, mellony, model, moscow, mpg, mylola, nablot, nansy, new, newcaps, newer, newstar, nimbus, nimphets, nn, nobull, november, novinhas, nude, nude01, nudis, old, olds, pae, pak, pedoﬁlia, peepee, petersburg, phantom, playtoy, porn, pre, preteen, preteenz, pretten, private, prt, pt, ptﬀ, pussy, qsh, rape, rar, rbv, reallola, rebone, rizmastar, sandra, sex, soﬁe, spam, spreading, st, step, suwano, teal, teen, thor, tochter, tori, torture, u15, ultra, until, uvs, v10040, v132, valya, vater, vdbest, ver, vicky, weekend, witch, xlola, ye, yelitza, yg, ygold, 1yo, 2yo, 4yo, 5yo, 6yo, 7yo, 8yo, 9yo, 10yo, 11yo, 13yo, ezik007, zadoom, vtcap, extremep2p, beerbarrell, stepdaughter, stepfather, humiliation, destroyed, deepfake, fake porn, stalker, stalking, harassment, cyberstalking, trolling, indecent\n\n\nInstructions: Classify the following text in between <classify> tags and output only one of the labels : Hate Speech, Radicalization, Extremism, Pedophilia or Normal in between the <label> tags\nText to classify: <classify>{text}</classify>\nLabel: <label>'
+            prompt = create_prompt()
             labels = ['Hate Speech', 'Radicalization', 'Extremism', 'Pedophilia', 'Normal']
 
         
