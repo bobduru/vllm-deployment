@@ -24,9 +24,12 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt /app/
 
-# Create virtual environment and install dependencies
-RUN uv venv /app/myenv --python 3.10 --seed && \
-    uv pip install --python /app/myenv/bin/python -r requirements.txt
+
+    # Create a virtual environment using uv
+RUN uv venv /app/myenv --python 3.10 --seed
+
+# Install Python dependencies inside the venv using system uv
+RUN uv pip install --python /app/myenv/bin/python -r requirements.txt
 
 # Add venv to PATH
 ENV PATH="/app/myenv/bin:$PATH"
