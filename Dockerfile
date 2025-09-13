@@ -1,7 +1,6 @@
 FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-
 ENV HF_HOME=/runpod-volume/hf_cache
 
 # Install Python 3.10 and system dependencies
@@ -17,26 +16,23 @@ RUN apt-get update && apt-get install -y \
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Add uv to path
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Create working directory
 WORKDIR /app
 
-# Create a virtual environment using uv
-RUN uv venv /app/myenv --python 3.10 --seed
+# Copy requirements first for better caching
+COPY requirements.txt /app/
 
-# Install Python dependencies inside the venv using system uv
-RUN uv pip install --python /app/myenv/bin/python vllm runpod pandas dotenv
+# Create virtual environment and install dependencies
+RUN uv venv /app/myenv --python 3.10 --seed && \
+    uv pip install --python /app/myenv/bin/python -r requirements.txt
 
-# Add venv to PATH for runtime use
+# Add venv to PATH
 ENV PATH="/app/myenv/bin:$PATH"
 
-# Copy your application
+# Copy application files
 COPY rp_handler.py /app/
 COPY keywords.csv /app/
 
-
-# Default command
 CMD ["python", "-u", "rp_handler.py"]
